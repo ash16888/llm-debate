@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     
     // Проверка наличия API ключей
     const apiKeys = checkAPIKeys();
-    if ((config.model1 === 'gpt-4o' || config.model2 === 'gpt-4o') && !apiKeys.openai) {
+    if ((config.model1 === 'gpt-4o-mini' || config.model2 === 'gpt-4o-mini') && !apiKeys.openai) {
       return NextResponse.json(
         { error: 'OpenAI API ключ не настроен' },
         { status: 400 }
