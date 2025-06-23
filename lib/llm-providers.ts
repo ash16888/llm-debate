@@ -54,19 +54,27 @@ export async function generateResponse({
     else if (model === 'gemini-2.5-flash') {
       const genAI = getGeminiClient();
       const geminiModel = genAI.getGenerativeModel({ 
-        model: 'gemini-2.0-flash-exp',
+        model: 'gemini-2.5-flash',
         generationConfig: {
           temperature,
-          maxOutputTokens: maxTokens,
+          maxOutputTokens: 10000, // Увеличиваем лимит для thinking mode
         }
       });
       
       // Объединяем system prompt и user prompt для Gemini
       const fullPrompt = `${systemPrompt}\n\n${prompt}`;
+      
       const result = await geminiModel.generateContent(fullPrompt);
       const response = await result.response;
       
-      return response.text();
+      const text = response.text();
+      
+      if (!text || text.trim() === '') {
+        console.error('Empty response from Gemini');
+        throw new Error('Empty response from Gemini');
+      }
+      
+      return text;
     }
     
     throw new Error(`Unsupported model: ${model}`);
