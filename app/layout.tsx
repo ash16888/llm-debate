@@ -22,7 +22,7 @@ export default function RootLayout({
           <div className="max-w-6xl mx-auto flex justify-between items-center">
             <Link href="/" className="text-xl font-bold">LLM Debate</Link>
             <div className="space-x-4">
-              <Link href="/" className="hover:text-gray-300">Новый дебат</Link>
+              <Link href="/" className="hover:text-gray-300">Новый диалог</Link>
               <Link href="/history" className="hover:text-gray-300">История</Link>
             </div>
           </div>
