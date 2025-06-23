@@ -19,8 +19,8 @@ npm install openai @google/generative-ai better-sqlite3 @types/better-sqlite3
 npm install -D @types/node
 
 # Создание .env.local файла
-echo "OPENAI_API_KEY=your_key_here" > .env.local
-echo "GOOGLE_API_KEY=your_key_here" >> .env.local
+cp .env.local.example .env.local
+# Затем отредактируйте .env.local и добавьте ваши API ключи
 ```
 
 ### Запуск
@@ -33,26 +33,33 @@ npm start          # Запуск продакшен версии
 ## Структура проекта (MVP)
 
 ```
-llm-debate-mvp/
+llm-debate/
 ├── app/
-│   ├── page.tsx                 # Главная страница с формой настройки
-│   ├── debate/[id]/page.tsx     # Страница дебатов
+│   ├── page.tsx                          # Главная страница с формой настройки
+│   ├── debate/[id]/page.tsx              # Страница дебатов
+│   ├── history/page.tsx                  # История дебатов
 │   ├── api/
-│   │   ├── debates/route.ts     # API для создания дебатов
-│   │   └── messages/route.ts    # API для генерации сообщений
-│   └── layout.tsx
+│   │   ├── debates/
+│   │   │   ├── route.ts                  # API для создания дебатов
+│   │   │   └── [id]/
+│   │   │       └── complete/route.ts     # API для завершения дебатов
+│   │   └── messages/route.ts             # API для генерации сообщений
+│   ├── layout.tsx
+│   ├── not-found.tsx                     # Страница 404
+│   └── globals.css                       # Глобальные стили
 ├── components/
-│   ├── DebateSetup.tsx          # Форма настройки дебатов
-│   ├── DebateArena.tsx          # Основной интерфейс дебатов
-│   ├── MessageBubble.tsx        # Компонент сообщения
-│   └── ModelSelector.tsx        # Выбор модели
+│   ├── DebateSetup.tsx                   # Форма настройки дебатов
+│   ├── DebateArena.tsx                   # Основной интерфейс дебатов
+│   └── MessageBubble.tsx                 # Компонент сообщения
 ├── lib/
-│   ├── db.ts                    # SQLite база данных
-│   ├── llm-providers.ts         # Интеграция с LLM API
-│   └── prompts.ts               # Промпты для дебатов
+│   ├── db.ts                             # SQLite база данных
+│   ├── llm-providers.ts                  # Интеграция с LLM API
+│   └── prompts.ts                        # Промпты для дебатов
 ├── types/
-│   └── debate.ts                # TypeScript типы
-└── .env.local                   # API ключи
+│   └── debate.ts                         # TypeScript типы
+├── debates.db                            # SQLite БД (создается автоматически)
+├── .env.local                            # API ключи
+└── .env.local.example                    # Пример файла с ключами
 ```
 
 ## База данных (SQLite)
@@ -94,15 +101,21 @@ db.exec(`
 
 ### Настройка дебатов
 ```typescript
-// components/DebateSetup.tsx
-interface DebateConfig {
+// types/debate.ts
+export interface DebateConfig {
   topic: string;
-  model1: 'gpt-4o-mini' | 'gemini-2.5-flash';
-  model2: 'gpt-4o-mini' | 'gemini-2.5-flash';
-  role1: 'proponent' | 'critic';
-  role2: 'proponent' | 'critic';
+  model1: ModelType;
+  model2: ModelType;
+  role1: RoleType;
+  role2: RoleType;
   rounds: number;
+  maxLength?: number;
+  temperature?: number;
 }
+
+export type ModelType = 'gpt-4o-mini' | 'gemini-2.5-flash';
+export type RoleType = 'proponent' | 'critic';
+export type DebateStatus = 'draft' | 'active' | 'completed';
 ```
 
 ### Интеграция с LLM
@@ -130,7 +143,13 @@ export async function generateResponse(
     return response.choices[0].message.content || '';
   } else if (model === 'gemini-2.5-flash') {
     const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
-    const gemini = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    const gemini = genAI.getGenerativeModel({ 
+      model: 'gemini-2.5-flash',
+      generationConfig: {
+        temperature,
+        maxOutputTokens: maxTokens
+      }
+    });
     const result = await gemini.generateContent([systemPrompt, prompt].join('\n\n'));
     return result.response.text();
   }
@@ -188,8 +207,9 @@ ${isLastRound ? 'Сделай заключительное заявление.' 
 export async function POST(request: Request) {
   const config = await request.json();
   // Валидация конфигурации
-  // Создание записи в БД
+  // Создание записи в БД с помощью debateDb.create()
   // Возврат ID дебатов
+  return Response.json({ debateId });
 }
 ```
 
@@ -198,10 +218,22 @@ export async function POST(request: Request) {
 // app/api/messages/route.ts
 export async function POST(request: Request) {
   const { debateId, round } = await request.json();
-  // Получение контекста из БД
-  // Генерация ответов для обеих моделей
-  // Сохранение в БД
-  // Возврат сообщений
+  // Получение дебата и предыдущих сообщений из БД
+  // Генерация промптов с помощью generateRoundPrompt()
+  // Параллельная генерация ответов для обеих моделей
+  // Сохранение в БД с помощью messageDb.create()
+  // Возврат сгенерированных сообщений
+}
+```
+
+### Завершение дебатов
+```typescript
+// app/api/debates/[id]/complete/route.ts
+export async function POST(request: Request, { params }) {
+  const { id } = await params;
+  // Обновление статуса дебата на 'completed'
+  // Установка времени завершения
+  debateDb.updateStatus(debateId, 'completed', 'finished_at');
 }
 ```
 
@@ -211,16 +243,23 @@ export async function POST(request: Request) {
 2. **Простая БД** - SQLite для хранения истории
 3. **Две модели** - GPT-4o Mini и Gemini 2.5 Flash
 4. **Базовые роли** - Сторонник и Критик
-5. **Фиксированная структура** - 5 раундов по умолчанию
+5. **Настраиваемые параметры**:
+   - Количество раундов (1-10)
+   - Температура генерации (0.2-1.0)
+   - Максимальная длина ответа
+6. **История дебатов** - страница со списком всех проведенных дебатов
+7. **Примеры тем** - возможность выбрать случайную тему из списка
 
 ## Расширение функциональности
 
 После MVP можно добавить:
-- Больше моделей (Claude, Llama)
-- Экспорт дебатов в Markdown
-- Настройка параметров генерации
-- Сохранение избранных дебатов
-- Темы дебатов из предустановленного списка
+
+- Больше моделей (Claude, Llama, GPT-4o, Gemini 2.0 Pro)
+- Экспорт дебатов в Markdown/PDF
+- Более сложные роли (Модератор, Эксперт, Скептик)
+- Режим турнира между несколькими моделями
+- Оценка качества аргументов
+- Интеграция с внешними источниками данных
 
 ## Тестирование
 
